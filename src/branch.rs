@@ -1,5 +1,6 @@
 //! This module contains all the implementations of everything branch related.
 
+use crate::Tick::{Down, Up};
 use std::fmt;
 
 /// A struct representing a branch of the binomial tree.
@@ -169,7 +170,7 @@ impl Branch {
         let mut number: u128 = 0;
 
         for (index, &tick) in ticks.iter().enumerate() {
-            if tick == Tick::Up {
+            if tick == Up {
                 // Bit at index to 1
                 number |= 1 << index;
             }
@@ -197,9 +198,9 @@ impl Branch {
 
         for index in 0_usize..self.length {
             if (self.ticks >> index) & 1_u128 == 1_u128 {
-                ticks.push(Tick::Up);
+                ticks.push(Up);
             } else {
-                ticks.push(Tick::Down);
+                ticks.push(Down);
             }
         }
 
@@ -292,9 +293,9 @@ impl Iterator for BranchIter {
 
         // Bit at current index
         let tick = if (self.branch.ticks >> self.index) & 1 == 1 {
-            Tick::Up
+            Up
         } else {
-            Tick::Down
+            Down
         };
 
         self.index += 1;
