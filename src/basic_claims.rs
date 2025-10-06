@@ -635,3 +635,177 @@ impl ContingentClaim for BinaryLookBackPut {
         }
     }
 }
+
+/// A Levered European Call option.
+///
+/// The payoff profile is
+/// ```text
+/// lever * max(final_stock_price - strike, 0)
+/// ```
+pub struct LeveredEuropeanCall {
+    strike: f64,
+    lever: f64,
+}
+
+impl LeveredEuropeanCall {
+    /// Initializes a new instance.
+    #[inline]
+    pub fn new(strike: f64, lever: f64) -> Self {
+        Self { strike, lever }
+    }
+
+    /// Returns the strike.
+    #[inline]
+    pub fn strike(&self) -> f64 {
+        self.strike
+    }
+
+    /// Returns the lever.
+    #[inline]
+    pub fn lever(&self) -> f64 {
+        self.lever
+    }
+}
+
+impl ContingentClaim for LeveredEuropeanCall {
+    #[inline]
+    fn payout(&self, branch: &Branch, model: &Model) -> f64 {
+        let stock_price: f64 = model.stock_price(branch);
+
+        (stock_price - self.strike).max(0_f64)
+    }
+}
+
+/// A Levered European Put option.
+///
+/// The payoff profile is
+/// ```text
+/// lever * max(strike - final_stock_price, 0)
+/// ```
+pub struct LeveredEuropeanPut {
+    strike: f64,
+    lever: f64,
+}
+
+impl LeveredEuropeanPut {
+    /// Initializes a new instance.
+    #[inline]
+    pub fn new(strike: f64, lever: f64) -> Self {
+        Self { strike, lever }
+    }
+
+    /// Returns the strike.
+    #[inline]
+    pub fn strike(&self) -> f64 {
+        self.strike
+    }
+
+    /// Returns the lever.
+    #[inline]
+    pub fn lever(&self) -> f64 {
+        self.lever
+    }
+}
+
+impl ContingentClaim for LeveredEuropeanPut {
+    #[inline]
+    fn payout(&self, branch: &Branch, model: &Model) -> f64 {
+        let stock_price: f64 = model.stock_price(branch);
+
+        (self.strike - stock_price).max(0_f64)
+    }
+}
+
+/// An up-and-in Call option.
+///
+/// The payoff profile is
+/// ```text
+/// final_stock_price - strike, if max(stock_price) >= barrier
+/// 0, otherwise
+/// ```
+pub struct UpAndInCall {
+    strike: f64,
+    barrier: f64,
+}
+
+impl UpAndInCall {
+    /// Initializes a new instance.
+    pub fn new(strike: f64, barrier: f64) -> Self {
+        Self { strike, barrier }
+    }
+
+    /// Returns the strike.
+    pub fn strike(&self) -> f64 {
+        self.strike
+    }
+
+    /// Returns the barrier.
+    pub fn barrier(&self) -> f64 {
+        self.barrier
+    }
+}
+
+impl ContingentClaim for UpAndInCall {
+    fn payout(&self, branch: &Branch, model: &Model) -> f64 {
+        let max_stock_price: f64 = model
+            .price_history(branch)
+            .iter()
+            .copied()
+            .reduce(f64::max)
+            .unwrap();
+
+        if max_stock_price >= self.barrier {
+            let final_stock_price: f64 = model.stock_price(branch);
+            (final_stock_price - self.strike).max(0_f64)
+        } else {
+            0_f64
+        }
+    }
+}
+
+/// An up-and-out Call option.
+///
+/// The payoff profile is
+/// ```text
+/// final_stock_price - strike, if max(stock_price) < barrier
+/// 0, otherwise
+/// ```
+pub struct UpAndOutCall {
+    strike: f64,
+    barrier: f64,
+}
+
+impl UpAndOutCall {
+    /// Initializes a new instance.
+    pub fn new(strike: f64, barrier: f64) -> Self {
+        Self { strike, barrier }
+    }
+
+    /// Returns the strike.
+    pub fn strike(&self) -> f64 {
+        self.strike
+    }
+
+    /// Returns the barrier.
+    pub fn barrier(&self) -> f64 {
+        self.barrier
+    }
+}
+
+impl ContingentClaim for UpAndOutCall {
+    fn payout(&self, branch: &Branch, model: &Model) -> f64 {
+        let max_stock_price: f64 = model
+            .price_history(branch)
+            .iter()
+            .copied()
+            .reduce(f64::max)
+            .unwrap();
+
+        if max_stock_price < self.barrier {
+            let final_stock_price: f64 = model.stock_price(branch);
+            (final_stock_price - self.strike).max(0_f64)
+        } else {
+            0_f64
+        }
+    }
+}
