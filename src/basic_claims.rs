@@ -477,7 +477,7 @@ impl BinaryAsianCall {
 impl ContingentClaim for BinaryAsianCall {
     fn payout(&self, branch: &Branch, model: &Model) -> f64 {
         let average_stock_price: f64 =
-            model.price_history(branch).iter().sum() / (model.len() as f64 + 1_f64);
+            model.price_history(branch).iter().sum::<f64>() / (model.len() as f64 + 1_f64);
 
         if average_stock_price > self.strike {
             self.payout
@@ -524,7 +524,7 @@ impl BinaryAsianPut {
 impl ContingentClaim for BinaryAsianPut {
     fn payout(&self, branch: &Branch, model: &Model) -> f64 {
         let average_stock_price: f64 =
-            model.price_history(branch).iter().sum() / (model.len() as f64 + 1_f64);
+            model.price_history(branch).iter().sum::<f64>() / (model.len() as f64 + 1_f64);
 
         if average_stock_price < self.strike {
             self.payout

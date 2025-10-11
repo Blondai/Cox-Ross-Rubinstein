@@ -254,9 +254,9 @@ impl Model {
     /// # use cox_ross_rubinstein::{Branch, Model, ModelError};
     /// let model: Model = Model::new(100_f64, 2, 0.5, 1.0, 2.0).unwrap();
     /// let branch: Branch = Branch::new(3_u128, 2).unwrap(); // (Up, Up)
-    /// assert!(model.probability(&branch) - 1.0/3.0 * 1.0*3.0 <= f64::EPSILON);
+    /// assert!((model.probability(&branch) - 1.0/3.0 * 1.0/3.0).abs() <= f64::EPSILON);
     /// let branch: Branch = Branch::new(0_u128, 2).unwrap(); // (Down, Down)
-    /// assert!(model.probability(&branch) - 2.0/3.0 * 2.0*3.0 <= f64::EPSILON);
+    /// assert!((model.probability(&branch) - 2.0/3.0 * 2.0/3.0).abs() <= f64::EPSILON);
     /// ```
     #[inline]
     pub fn probability(&self, branch: &Branch) -> f64 {
@@ -275,9 +275,10 @@ impl Model {
     ///
     /// ```
     /// # use cox_ross_rubinstein::{basic_claims::EuropeanCall, Model};
-    /// let model: Model = Model::new(100_f64, 2, 0.5, 1.0, 2.0).unwrap();
+    /// let model: Model = Model::new(100_f64, 2, 0.5, 1.0, 1.5).unwrap();
     /// let claim: EuropeanCall = EuropeanCall::new(100_f64);
-    /// assert!(model.initial_claim_price(&claim) - 100.0/3.0 <= f64::EPSILON);
+    /// let claim_price: f64 = model.initial_claim_price(&claim);
+    /// assert!((claim_price - 31.25).abs() <= f64::EPSILON);
     /// ```
     pub fn initial_claim_price<C: ContingentClaim>(&self, claim: &C) -> f64 {
         let generator: BranchGenerator = BranchGenerator::new(self.periods).unwrap(); // Safe
@@ -289,6 +290,138 @@ impl Model {
 
         // Discount
         expected_payoff / self.risk_free_factor.powi(self.periods as i32)
+    }
+
+    /// Calculates the risk-free current price of a [`ContingentClaim`] based on a [`Branch`].
+    ///
+    /// This **recursively** calculates the claim value based on
+    /// ```text
+    /// claim_value[branch] = claim_value[branch + Up] * q + claim_value[branch + Down] * (1 - q)
+    /// ```
+    /// where `q` is the riskneutral probability for one [`Up`]-movement.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cox_ross_rubinstein::{basic_claims::EuropeanCall, Branch, ContingentClaim, Model, Tick};
+    /// // Value in [Up, Up]
+    /// let model: Model = Model::new(100_f64, 3, 0.5, 1.0, 2.0).unwrap();
+    /// let claim: EuropeanCall = EuropeanCall::new(100_f64);
+    /// let branch: Branch = Branch::from_ticks(vec![Tick::Up, Tick::Up].as_ref()).unwrap();
+    /// let claim_value: f64 = model.claim_value(&claim, &branch).unwrap();
+    /// assert!((claim_value - 300.0).abs() <= f64::EPSILON);
+    /// // Initial value
+    /// let branch: Branch = Branch::from_ticks(vec![].as_ref()).unwrap();
+    /// let claim_value: f64 = model.claim_value(&claim, &branch).unwrap();
+    /// let initial_price: f64 = model.initial_claim_price(&claim);
+    /// assert!(claim_value - initial_price <= f64::EPSILON);
+    /// // End value
+    /// let ticks: Vec<Tick> = vec![Tick::Up, Tick::Up, Tick::Down];
+    /// let branch: Branch = Branch::from_ticks(&ticks).unwrap();
+    /// let claim_value: f64 = model.claim_value(&claim, &branch).unwrap();
+    /// let claim_payout: f64 = claim.payout(&branch, &model);
+    /// assert!((claim_value - claim_payout).abs() <= f64::EPSILON);
+    /// ```
+    pub fn claim_value<C: ContingentClaim>(
+        &self,
+        claim: &C,
+        branch: &Branch,
+    ) -> Result<f64, ModelError> {
+        let branch_length: usize = branch.len();
+        let model_length: usize = self.len();
+
+        ModelError::check_branch(branch_length, model_length)?;
+
+        if branch_length == model_length {
+            Ok(claim.payout(branch, self))
+        } else if branch_length == 0 {
+            Ok(self.initial_claim_price(claim))
+        } else {
+            let up_branch: Branch = branch.add_unchecked(Up); // Safe
+            let down_branch: Branch = branch.add_unchecked(Down); // Safe
+
+            let up_value: f64 = self.claim_value(claim, &up_branch)?;
+            let down_value: f64 = self.claim_value(claim, &down_branch)?;
+
+            Ok((up_value * self.up_prob + down_value * self.down_prob) / self.risk_free_factor)
+        }
+    }
+
+    /// Replicates a [`ContingentClaim`] based on a [`Branch`].
+    ///
+    /// This uses the **recursive** method [`Model::claim_value`] to calculate the possible values one time period in the future.
+    /// The number of stocks and bonds is calculated by solving
+    /// ```text
+    /// claim_value[branch + Up] = #bonds * risk_free_factor**t + #stocks * stock_price[branch + Up]
+    /// claim_value[branch + Down] = #bonds * risk_free_factor**t + #stocks * stock_price[branch + Down]
+    /// ```
+    /// where `t` is the length of the [`Branch`] plus one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cox_ross_rubinstein::{basic_claims::EuropeanCall, Branch, ContingentClaim, Model, Tick};
+    /// let model: Model = Model::new(100_f64, 3, 0.5, 1.0, 2.0).unwrap();
+    /// let claim: EuropeanCall = EuropeanCall::new(100_f64);
+    /// let branch: Branch = Branch::from_ticks(vec![Tick::Up, Tick::Up].as_ref()).unwrap();
+    /// let (number_of_bonds, number_of_stocks): (f64, f64) = model.replicate_claim(&claim, &branch).unwrap();
+    /// assert!((number_of_bonds + 100.0).abs() <= f64::EPSILON);
+    /// assert!((number_of_stocks - 1.0).abs() <= f64::EPSILON);
+    /// ```
+    pub fn replicate_claim<C: ContingentClaim>(
+        &self,
+        claim: &C,
+        branch: &Branch,
+    ) -> Result<(f64, f64), ModelError> {
+        ModelError::check_branch(branch.len() + 1, self.len())?;
+
+        let up_branch: Branch = branch.add_unchecked(Up); // Safe
+        let down_branch: Branch = branch.add_unchecked(Down); // Safe
+
+        let bond_price: f64 = self.risk_free_factor.powi(branch.len() as i32 + 1_i32);
+
+        let up_price: f64 = self.stock_price(&up_branch);
+        let down_price: f64 = self.stock_price(&down_branch);
+        let up_value: f64 = self.claim_value(claim, &up_branch)?;
+        let down_value: f64 = self.claim_value(claim, &down_branch)?;
+
+        let number_of_stocks: f64 = (up_value - down_value) / (up_price - down_price);
+        let number_of_bonds: f64 = (up_value - number_of_stocks * up_price) / bond_price;
+        Ok((number_of_bonds, number_of_stocks))
+    }
+
+    /// Calculates the value of a portfolio consisting of a `number_of_bonds` and a `number_of_stocks`
+    /// on a specific [`Branch`].
+    ///
+    /// This is calculated using
+    /// ```text
+    /// risk_free_factor**t * #bonds + stock_price[branch] * #stocks
+    /// ```
+    /// where `t` is the length of the [`Branch`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cox_ross_rubinstein::{basic_claims::EuropeanCall, Branch, ContingentClaim, Model, Tick};
+    /// let model: Model = Model::new(100_f64, 3, 0.5, 1.0, 2.0).unwrap();
+    /// let claim: EuropeanCall = EuropeanCall::new(100_f64);
+    /// let branch: Branch = Branch::from_ticks(vec![Tick::Up, Tick::Up].as_ref()).unwrap();
+    /// let (number_of_bonds, number_of_stocks): (f64, f64) = model.replicate_claim(&claim, &branch).unwrap();
+    ///
+    /// let claim_value: f64 = model.claim_value(&claim, &branch).unwrap();
+    /// let cost_of_replication: f64 = model.portfolio_value(number_of_bonds, number_of_stocks, &branch);
+    /// assert!((claim_value - cost_of_replication).abs() <= f64::EPSILON);
+    /// ```
+    pub fn portfolio_value(
+        &self,
+        number_of_bonds: f64,
+        number_of_stocks: f64,
+        branch: &Branch,
+    ) -> f64 {
+        let bond_value: f64 = self.risk_free_factor.powi(branch.len() as i32) * number_of_bonds;
+        let stock_value: f64 = self.stock_price(&branch) * number_of_stocks;
+
+        bond_value + stock_value
     }
 }
 
@@ -306,10 +439,16 @@ pub enum ModelError {
         risk_free_factor: f64,
         up_factor: f64,
     },
+
+    /// The [`Branch`] is too long for the [`Model`].
+    BranchTooLong {
+        branch_length: usize,
+        model_length: usize,
+    },
 }
 
 impl ModelError {
-    /// Checks if the model does allow arbitrage.
+    /// Checks if the [`Model`] does allow arbitrage.
     #[inline]
     pub(crate) fn check_arbitrage(
         down_factor: f64,
@@ -323,6 +462,22 @@ impl ModelError {
                 down_factor,
                 risk_free_factor,
                 up_factor,
+            })
+        }
+    }
+
+    /// Checks if a [`Branch`] and a [`Model`] are compatible.
+    #[inline]
+    pub(crate) fn check_branch(
+        branch_length: usize,
+        model_length: usize,
+    ) -> Result<(), ModelError> {
+        if branch_length <= model_length {
+            Ok(())
+        } else {
+            Err(ModelError::BranchTooLong {
+                branch_length,
+                model_length,
             })
         }
     }
@@ -340,6 +495,16 @@ impl fmt::Display for ModelError {
                 "Not arbitrage free. The inequality d ({}) < 1+r ({}) < u ({}) is not correct.",
                 down_factor, risk_free_factor, up_factor
             ),
+            ModelError::BranchTooLong {
+                branch_length,
+                model_length,
+            } => {
+                write!(
+                    format,
+                    "Branch of length {} is too long for model fo length {}.",
+                    branch_length, model_length
+                )
+            }
         }
     }
 }
