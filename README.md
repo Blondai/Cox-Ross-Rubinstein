@@ -28,8 +28,8 @@ This uses the riskneutral expectation of the discounted end value.
 
 - [ ] Add integration tests.
 - [x] Add more claims to `basic_claims`.
-- [ ] Implement `Simulation` to simulate risk-free branches of the stock prices.
-- [ ] Use this simulation to evaluate the claim using [Monte Carlo method](https://en.wikipedia.org/wiki/Monte_Carlo_method).
+- [x] Implement `Simulation` to simulate risk-free branches of the stock prices.
+- [x] Use this simulation to evaluate the claim using [Monte Carlo method](https://en.wikipedia.org/wiki/Monte_Carlo_method).
 - [x] Calculate fair claim prices for any knot in the tree.
 - [x] Calculate replication strategies.
 - [ ] Visualization.

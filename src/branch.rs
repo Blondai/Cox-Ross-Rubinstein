@@ -176,7 +176,7 @@ impl Branch {
             }
             // Down nothing bit already 0
         }
-        Self::new(number, ticks.len()) // Will succeed
+        Ok(Self::new_unchecked(number, ticks.len()))
     }
 
     /// Returns the [`Tick`] representation of a [`Branch`].

@@ -1,6 +1,7 @@
 [package]
 name = "cox_ross_rubinstein"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 
 [dependencies]
+random = { git = "https://github.com/Blondai/Random.git" }

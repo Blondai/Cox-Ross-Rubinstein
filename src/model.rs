@@ -1,5 +1,6 @@
 //! This module contains the implementations of the model struct.
 
+use random::FastBernoulli;
 use std::fmt;
 
 use crate::{
@@ -422,6 +423,64 @@ impl Model {
         let stock_value: f64 = self.stock_price(&branch) * number_of_stocks;
 
         bond_value + stock_value
+    }
+
+    /// Simulates a [`Branch`] based  on the `Up`-probability of  the [`Model`].
+    ///
+    /// This uses [`FastBernoulli`] to generate the [`Branch`] at lightning speed.
+    #[inline]
+    fn simulate_branch(&self, rng: &mut FastBernoulli) -> Branch {
+        let mut ticks: u128 = 0_u128;
+
+        for index in 0..self.len() {
+            let is_up: bool = rng.bernoulli(self.up_prob);
+            if is_up {
+                ticks |= 1 << index
+            }
+        }
+
+        Branch::new_unchecked(ticks, self.len())
+    }
+
+    /// Calculates the initial price of a [`ContingentClaim`] using Monte Carlo Simulation.
+    ///
+    /// More simulations yields a more accurate result.
+    ///
+    /// # Arguments
+    ///
+    /// * `claim`: The [`ContingentClaim`] to calculate the price of.
+    /// * `number_of_simulations`: The number of simulations.
+    ///
+    /// # Returns
+    ///
+    /// An approximation of the initial price of a [`ContingentClaim`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cox_ross_rubinstein::{basic_claims::EuropeanCall, Branch, ContingentClaim, Model, Tick};
+    /// let model: Model = Model::new(100_f64, 3, 0.5, 1.0, 2.0).unwrap();
+    /// let claim: EuropeanCall = EuropeanCall::new(100_f64);
+    /// let simulated_price: f64 = model.simulate_claim_price(&claim, 10_000);
+    /// let initial_price: f64 = model.initial_claim_price(&claim);
+    /// assert!((simulated_price - initial_price).abs() <= 5.0);
+    /// ```
+    pub fn simulate_claim_price<C: ContingentClaim>(
+        &self,
+        claim: &C,
+        number_of_simulations: usize,
+    ) -> f64 {
+        let mut rng: FastBernoulli = FastBernoulli::new();
+        let mut payoffs: f64 = 0_f64;
+
+        for _ in 0..number_of_simulations {
+            let branch: Branch = self.simulate_branch(&mut rng);
+            payoffs += claim.payout(&branch, self);
+        }
+
+        let discount_rate: f64 = self.risk_free_factor.powi(self.periods as i32);
+
+        payoffs / (number_of_simulations as f64) / discount_rate
     }
 }
 
